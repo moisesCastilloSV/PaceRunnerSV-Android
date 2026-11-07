@@ -2,6 +2,7 @@
 package sv.pacerunnersv.app
 
 import android.os.Bundle
+import android.util.Patterns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -22,6 +23,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import sv.pacerunnersv.app.ui.theme.PaceRunnerSVTheme
 
 private val Negro = Color(0xFF111111)
@@ -29,12 +32,10 @@ private val VerdeNeon = Color(0xFFB6FF00)
 private val Blanco = Color(0xFFFFFFFF)
 private val Gris = Color(0xFFBDBDBD)
 
-private const val CORREO_PRUEBA = "demo@pacerunnersv.com"
-private const val CLAVE_PRUEBA = "Runner123"
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             PaceRunnerSVTheme {
                 Surface(
@@ -52,42 +53,49 @@ class MainActivity : ComponentActivity() {
 fun AppAutenticacion() {
     var pantalla by remember { mutableStateOf("login") }
 
+    val auth = remember {
+        FirebaseAuth.getInstance()
+    }
+
     when (pantalla) {
         "login" -> PantallaLogin(
-            irRegistro = { pantalla = "registro" },
-            iniciarSesion = { correo, clave ->
-                if (
-                    correo.trim().equals(CORREO_PRUEBA, ignoreCase = true) &&
-                    clave == CLAVE_PRUEBA
-                ) {
-                    pantalla = "inicio"
-                    true
-                } else {
-                    false
-                }
+            onLoginExitoso = {
+                pantalla = "inicio"
+            },
+            irRegistro = {
+                pantalla = "registro"
             }
         )
 
         "registro" -> PantallaRegistro(
-            volverLogin = { pantalla = "login" }
+            volverLogin = {
+                pantalla = "login"
+            }
         )
 
         "inicio" -> PantallaPrincipal(
-            cerrarSesion = { pantalla = "login" }
+            cerrarSesion = {
+                auth.signOut()
+                pantalla = "login"
+            }
         )
     }
 }
 
 @Composable
 fun EncabezadoPaceRunner() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(
             text = "PACE RUNNER SV",
             color = VerdeNeon,
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold
         )
+
         Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             text = "SUPERA TUS LÍMITES",
             color = Blanco,
@@ -103,7 +111,9 @@ fun CampoContrasena(
     alCambiar: (String) -> Unit,
     etiqueta: String
 ) {
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember {
+        mutableStateOf(false)
+    }
 
     OutlinedTextField(
         value = valor,
@@ -120,7 +130,9 @@ fun CampoContrasena(
             keyboardType = KeyboardType.Password
         ),
         trailingIcon = {
-            TextButton(onClick = { visible = !visible }) {
+            TextButton(
+                onClick = { visible = !visible }
+            ) {
                 Text(
                     text = if (visible) "Ocultar" else "Ver",
                     color = VerdeNeon
@@ -132,12 +144,28 @@ fun CampoContrasena(
 
 @Composable
 fun PantallaLogin(
-    irRegistro: () -> Unit,
-    iniciarSesion: (String, String) -> Boolean
+    onLoginExitoso: () -> Unit,
+    irRegistro: () -> Unit
 ) {
-    var correo by remember { mutableStateOf("") }
-    var contrasena by remember { mutableStateOf("") }
-    var mensaje by remember { mutableStateOf("") }
+    var correo by remember {
+        mutableStateOf("")
+    }
+
+    var contrasena by remember {
+        mutableStateOf("")
+    }
+
+    var mensaje by remember {
+        mutableStateOf("")
+    }
+
+    var cargando by remember {
+        mutableStateOf(false)
+    }
+
+    val auth = remember {
+        FirebaseAuth.getInstance()
+    }
 
     Column(
         modifier = Modifier
@@ -148,6 +176,7 @@ fun PantallaLogin(
         verticalArrangement = Arrangement.Center
     ) {
         EncabezadoPaceRunner()
+
         Spacer(modifier = Modifier.height(38.dp))
 
         Text(
@@ -156,10 +185,14 @@ fun PantallaLogin(
             fontSize = 25.sp,
             fontWeight = FontWeight.Bold
         )
+
         Text(
             text = "Inicia sesión para continuar",
             color = Gris,
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+            modifier = Modifier.padding(
+                top = 8.dp,
+                bottom = 24.dp
+            )
         )
 
         OutlinedTextField(
@@ -173,7 +206,8 @@ fun PantallaLogin(
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email
-            )
+            ),
+            enabled = !cargando
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -191,31 +225,91 @@ fun PantallaLogin(
 
         Button(
             onClick = {
-                mensaje = when {
-                    correo.isBlank() ->
-                        "Ingresa tu correo electrónico."
-                    !android.util.Patterns.EMAIL_ADDRESS
-                        .matcher(correo.trim()).matches() ->
-                        "Ingresa un correo válido."
-                    contrasena.isBlank() ->
-                        "Ingresa tu contraseña."
-                    contrasena.length < 6 ->
-                        "La contraseña debe tener al menos 6 caracteres."
-                    iniciarSesion(correo, contrasena) -> ""
-                    else ->
-                        "Credenciales incorrectas. Verifica tus datos."
+                when {
+                    correo.isBlank() -> {
+                        mensaje = "Ingresa tu correo electrónico."
+                    }
+
+                    !Patterns.EMAIL_ADDRESS
+                        .matcher(correo.trim()).matches() -> {
+                        mensaje = "Ingresa un correo válido."
+                    }
+
+                    contrasena.isBlank() -> {
+                        mensaje = "Ingresa tu contraseña."
+                    }
+
+                    contrasena.length < 6 -> {
+                        mensaje =
+                            "La contraseña debe tener al menos 6 caracteres."
+                    }
+
+                    else -> {
+                        cargando = true
+                        mensaje = ""
+
+                        auth.signInWithEmailAndPassword(
+                            correo.trim(),
+                            contrasena
+                        ).addOnCompleteListener { tarea ->
+
+                            cargando = false
+
+                            if (tarea.isSuccessful) {
+                                onLoginExitoso()
+                            } else {
+                                val codigo = (
+                                        tarea.exception as? FirebaseAuthException
+                                        )?.errorCode
+
+                                mensaje = when (codigo) {
+                                    "ERROR_INVALID_EMAIL" ->
+                                        "El correo electrónico no es válido."
+
+                                    "ERROR_USER_NOT_FOUND",
+                                    "ERROR_WRONG_PASSWORD",
+                                    "ERROR_INVALID_CREDENTIAL" ->
+                                        "Correo o contraseña incorrectos."
+
+                                    "ERROR_USER_DISABLED" ->
+                                        "Esta cuenta está deshabilitada."
+
+                                    "ERROR_TOO_MANY_REQUESTS" ->
+                                        "Demasiados intentos. Intenta más tarde."
+
+                                    "ERROR_NETWORK_REQUEST_FAILED" ->
+                                        "Error de conexión. Verifica tu internet."
+
+                                    else ->
+                                        "No fue posible iniciar sesión. Intenta nuevamente."
+                                }
+                            }
+                        }
+                    }
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
+            enabled = !cargando,
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = VerdeNeon,
                 contentColor = Negro
             )
         ) {
-            Text("INICIAR SESIÓN", fontWeight = FontWeight.Bold)
+            if (cargando) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = Negro,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    "INICIAR SESIÓN",
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         if (mensaje.isNotEmpty()) {
@@ -229,9 +323,12 @@ fun PantallaLogin(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        TextButton(onClick = irRegistro) {
+        TextButton(
+            onClick = irRegistro,
+            enabled = !cargando
+        ) {
             Text(
-                "¿No tienes cuenta? Regístrate",
+                text = "¿No tienes cuenta? Regístrate",
                 color = VerdeNeon
             )
         }
@@ -242,11 +339,25 @@ fun PantallaLogin(
 fun PantallaRegistro(
     volverLogin: () -> Unit
 ) {
-    var nombre by remember { mutableStateOf("") }
-    var correo by remember { mutableStateOf("") }
-    var contrasena by remember { mutableStateOf("") }
-    var confirmar by remember { mutableStateOf("") }
-    var mensaje by remember { mutableStateOf("") }
+    var nombre by remember {
+        mutableStateOf("")
+    }
+
+    var correo by remember {
+        mutableStateOf("")
+    }
+
+    var contrasena by remember {
+        mutableStateOf("")
+    }
+
+    var confirmar by remember {
+        mutableStateOf("")
+    }
+
+    var mensaje by remember {
+        mutableStateOf("")
+    }
 
     Column(
         modifier = Modifier
@@ -257,6 +368,7 @@ fun PantallaRegistro(
         verticalArrangement = Arrangement.Center
     ) {
         EncabezadoPaceRunner()
+
         Spacer(modifier = Modifier.height(32.dp))
 
         Text(
@@ -265,15 +377,22 @@ fun PantallaRegistro(
             fontSize = 25.sp,
             fontWeight = FontWeight.Bold
         )
+
         Text(
             "Regístrate en PaceRunnerSV",
             color = Gris,
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+            modifier = Modifier.padding(
+                top = 8.dp,
+                bottom = 24.dp
+            )
         )
 
         OutlinedTextField(
             value = nombre,
-            onValueChange = { nombre = it; mensaje = "" },
+            onValueChange = {
+                nombre = it
+                mensaje = ""
+            },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nombre completo") },
             singleLine = true
@@ -283,7 +402,10 @@ fun PantallaRegistro(
 
         OutlinedTextField(
             value = correo,
-            onValueChange = { correo = it; mensaje = "" },
+            onValueChange = {
+                correo = it
+                mensaje = ""
+            },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Correo electrónico") },
             singleLine = true,
@@ -296,7 +418,10 @@ fun PantallaRegistro(
 
         CampoContrasena(
             valor = contrasena,
-            alCambiar = { contrasena = it; mensaje = "" },
+            alCambiar = {
+                contrasena = it
+                mensaje = ""
+            },
             etiqueta = "Contraseña"
         )
 
@@ -304,7 +429,10 @@ fun PantallaRegistro(
 
         CampoContrasena(
             valor = confirmar,
-            alCambiar = { confirmar = it; mensaje = "" },
+            alCambiar = {
+                confirmar = it
+                mensaje = ""
+            },
             etiqueta = "Confirmar contraseña"
         )
 
@@ -313,16 +441,21 @@ fun PantallaRegistro(
         Button(
             onClick = {
                 mensaje = when {
-                    nombre.isBlank() -> "Ingresa tu nombre."
-                    !android.util.Patterns.EMAIL_ADDRESS
+                    nombre.isBlank() ->
+                        "Ingresa tu nombre."
+
+                    !Patterns.EMAIL_ADDRESS
                         .matcher(correo.trim()).matches() ->
                         "Ingresa un correo válido."
+
                     contrasena.length < 6 ->
                         "La contraseña debe tener al menos 6 caracteres."
+
                     contrasena != confirmar ->
                         "Las contraseñas no coinciden."
+
                     else ->
-                        "Formulario válido. Registro real pendiente."
+                        "Formulario válido. El registro no está habilitado."
                 }
             },
             modifier = Modifier
@@ -334,17 +467,16 @@ fun PantallaRegistro(
                 contentColor = Negro
             )
         ) {
-            Text("CREAR CUENTA", fontWeight = FontWeight.Bold)
+            Text(
+                "CREAR CUENTA",
+                fontWeight = FontWeight.Bold
+            )
         }
 
         if (mensaje.isNotEmpty()) {
             Text(
                 mensaje,
-                color = if (mensaje.startsWith("Formulario válido")) {
-                    VerdeNeon
-                } else {
-                    Color(0xFFFF7777)
-                },
+                color = Color(0xFFFF7777),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 14.dp)
             )
@@ -353,7 +485,10 @@ fun PantallaRegistro(
         Spacer(modifier = Modifier.height(12.dp))
 
         TextButton(onClick = volverLogin) {
-            Text("Ya tengo cuenta. Iniciar sesión", color = VerdeNeon)
+            Text(
+                "Ya tengo cuenta. Iniciar sesión",
+                color = VerdeNeon
+            )
         }
     }
 }
