@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import sv.pacerunnersv.app.ui.theme.PaceRunnerSVTheme
 
 private val Negro = Color(0xFF111111)
@@ -335,29 +337,21 @@ fun PantallaLogin(
     }
 }
 
+
 @Composable
 fun PantallaRegistro(
     volverLogin: () -> Unit
 ) {
-    var nombre by remember {
-        mutableStateOf("")
-    }
+    var nombre by remember { mutableStateOf("") }
+    var correo by remember { mutableStateOf("") }
+    var contrasena by remember { mutableStateOf("") }
+    var confirmar by remember { mutableStateOf("") }
+    var mensaje by remember { mutableStateOf("") }
+    var cargando by remember { mutableStateOf(false) }
+    var registroExitoso by remember { mutableStateOf(false) }
 
-    var correo by remember {
-        mutableStateOf("")
-    }
-
-    var contrasena by remember {
-        mutableStateOf("")
-    }
-
-    var confirmar by remember {
-        mutableStateOf("")
-    }
-
-    var mensaje by remember {
-        mutableStateOf("")
-    }
+    val auth = remember { FirebaseAuth.getInstance() }
+    val db = remember { FirebaseFirestore.getInstance() }
 
     Column(
         modifier = Modifier
@@ -395,7 +389,8 @@ fun PantallaRegistro(
             },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Nombre completo") },
-            singleLine = true
+            singleLine = true,
+            enabled = !cargando && !registroExitoso
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -411,7 +406,8 @@ fun PantallaRegistro(
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email
-            )
+            ),
+            enabled = !cargando && !registroExitoso
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -440,43 +436,115 @@ fun PantallaRegistro(
 
         Button(
             onClick = {
-                mensaje = when {
+                when {
                     nombre.isBlank() ->
-                        "Ingresa tu nombre."
+                        mensaje = "Ingresa tu nombre."
 
                     !Patterns.EMAIL_ADDRESS
                         .matcher(correo.trim()).matches() ->
-                        "Ingresa un correo válido."
+                        mensaje = "Ingresa un correo válido."
 
                     contrasena.length < 6 ->
-                        "La contraseña debe tener al menos 6 caracteres."
+                        mensaje = "La contraseña debe tener al menos 6 caracteres."
 
                     contrasena != confirmar ->
-                        "Las contraseñas no coinciden."
+                        mensaje = "Las contraseñas no coinciden."
 
-                    else ->
-                        "Formulario válido. El registro no está habilitado."
+                    else -> {
+                        cargando = true
+                        mensaje = ""
+
+                        auth.createUserWithEmailAndPassword(
+                            correo.trim(),
+                            contrasena
+                        ).addOnCompleteListener { tarea ->
+
+                            if (tarea.isSuccessful) {
+                                val usuario = auth.currentUser
+
+                                if (usuario == null) {
+                                    cargando = false
+                                    mensaje = "No se pudo obtener el usuario."
+                                } else {
+                                    val datosUsuario = hashMapOf(
+                                        "nombre" to nombre.trim(),
+                                        "correo" to correo.trim(),
+                                        "fechaRegistro" to FieldValue.serverTimestamp(),
+                                        "rol" to "cliente"
+                                    )
+
+                                    db.collection("usuarios")
+                                        .document(usuario.uid)
+                                        .set(datosUsuario)
+                                        .addOnSuccessListener {
+                                            cargando = false
+                                            registroExitoso = true
+                                            mensaje = "¡Cuenta creada correctamente! Ya puedes iniciar sesión."
+                                        }
+                                        .addOnFailureListener {
+                                            cargando = false
+                                            mensaje = "La cuenta se creó, pero no se pudieron guardar tus datos en Firestore."
+                                        }
+                                }
+                            } else {
+                                cargando = false
+
+                                val codigo = (
+                                        tarea.exception as? FirebaseAuthException
+                                        )?.errorCode
+
+                                mensaje = when (codigo) {
+                                    "ERROR_EMAIL_ALREADY_IN_USE" ->
+                                        "Este correo ya está registrado."
+
+                                    "ERROR_INVALID_EMAIL" ->
+                                        "El correo no es válido."
+
+                                    "ERROR_WEAK_PASSWORD" ->
+                                        "La contraseña es demasiado débil."
+
+                                    "ERROR_NETWORK_REQUEST_FAILED" ->
+                                        "Verifica tu conexión a internet."
+
+                                    else ->
+                                        "No se pudo crear la cuenta. Intenta nuevamente."
+                                }
+                            }
+                        }
+                    }
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
+            enabled = !cargando && !registroExitoso,
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = VerdeNeon,
                 contentColor = Negro
             )
         ) {
-            Text(
-                "CREAR CUENTA",
-                fontWeight = FontWeight.Bold
-            )
+            if (cargando) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = Negro,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    "CREAR CUENTA",
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         if (mensaje.isNotEmpty()) {
             Text(
                 mensaje,
-                color = Color(0xFFFF7777),
+                color = if (registroExitoso)
+                    VerdeNeon
+                else
+                    Color(0xFFFF7777),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 14.dp)
             )
@@ -486,9 +554,13 @@ fun PantallaRegistro(
 
         TextButton(onClick = volverLogin) {
             Text(
-                "Ya tengo cuenta. Iniciar sesión",
+                if (registroExitoso)
+                    "Ir a iniciar sesión"
+                else
+                    "Ya tengo cuenta. Iniciar sesión",
                 color = VerdeNeon
             )
         }
     }
 }
+
